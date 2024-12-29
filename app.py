@@ -1,12 +1,27 @@
+import os
 from flask import Flask, request, jsonify
 from stable_baselines3 import DQN
 import numpy as np
+from dotenv import load_dotenv
 from recommendation_engine import EpsilonGreedyRecommender
 
 app = Flask(__name__)
 
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise Exception(
+        "SUPABASE_URL i SUPABASE_KEY environment varijable moraju biti postavljene."
+    )
+
+
 model = DQN.load("pricing_agent")
-recommender = EpsilonGreedyRecommender(filepath="sneakers.json", epsilon=0.1)
+recommender = EpsilonGreedyRecommender(
+    supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY, epsilon=0.1
+)
 
 
 # Funkcija za pripremu stanja za JEDAN proizvod
@@ -39,6 +54,10 @@ def prepare_state(user_data, product_data):
 
 @app.route("/recommend", methods=["GET"])
 def recommend():
+    """
+    Endpoint za preporuke patika.
+    Može da primi query parametar 'num' koji određuje broj preporuka.
+    """
     try:
         num = int(request.args.get("num", 1))
         if num < 1:
@@ -46,22 +65,55 @@ def recommend():
     except ValueError:
         return jsonify({"error": "Parametar 'num' mora biti pozitivan ceo broj."}), 400
 
+    # Odaberi patike za preporuku
     chosen_items = recommender.select_items(num_items=num)
-    recommendations = [{"id": cid, "name": cname} for cid, cname in chosen_items]
 
-    return jsonify({"recommendations": recommendations})
+    if not chosen_items:
+        return jsonify({"error": "Nema dostupnih patika za preporuku."}), 404
+
+    # Povuci dodatne podatke o preporučenim patikama iz Supabase
+    sneaker_ids = [item[0] for item in chosen_items]
+    response = (
+        recommender.supabase.table("sneakers")
+        .select("*")
+        .in_("id", sneaker_ids)
+        .execute()
+    )
+    if response.status_code != 200:
+        return (
+            jsonify({"error": "Greška prilikom povlačenja podataka o patikama."}),
+            500,
+        )
+
+    detailed_sneakers = response.data
+    return jsonify({"recommendations": detailed_sneakers})
 
 
 @app.route("/interact", methods=["POST"])
 def interact():
+    """
+    Endpoint za interakcije korisnika sa preporukama.
+    Očekuje JSON telo sa 'id' i 'interaction_type'.
+    """
     data = request.json
     chosen_id = data.get("id")
-    interaction_type = data.get("interaction_type", "no_click")
+    interaction_type = data.get(
+        "interaction_type", "no_click"
+    )  # 'click', 'purchase', 'no_click'
 
-    if chosen_id not in recommender.items:
-        return jsonify({"error": "Nepoznata patika"}), 400
+    if not chosen_id:
+        return jsonify({"error": "Parametar 'id' je obavezan."}), 400
 
-    recommender.update(chosen_id, interaction_type)
+    if interaction_type not in ["click", "purchase", "no_click"]:
+        return jsonify({"error": "Nepoznata vrednost za 'interaction_type'."}), 400
+
+    try:
+        recommender.update(chosen_id, interaction_type)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": "Greška prilikom ažuriranja podataka."}), 500
+
     return jsonify({"status": "updated"})
 
 
