@@ -1,9 +1,8 @@
 import random
-from supabase_py import create_client, Client
+from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
 
-# Učitaj environment varijable iz .env fajla
 load_dotenv()
 
 
@@ -16,9 +15,9 @@ class EpsilonGreedyRecommender:
         """
         self.epsilon = epsilon
         self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.items = {}  # Ključ je id, vrednost je name
-        self.counts = {}  # Ključ je id, vrednost je count
-        self.rewards = {}  # Ključ je id, vrednost je reward
+        self.items = {}
+        self.counts = {}
+        self.rewards = {}
         self.load_data()
 
     def load_data(self):
@@ -26,10 +25,10 @@ class EpsilonGreedyRecommender:
         Učitaj podatke o patikama iz Supabase baze.
         """
         response = self.supabase.table("Product").select("*").execute()
-        # if response.get("status_code") != 200:
-        #     raise Exception(f"Greška prilikom učitavanja podataka: {response}")
 
-        data = response.get("data", [])
+        # Access data directly from response.data
+        data = response.data
+
         for entry in data:
             sneaker_id = entry["id"]
             name = entry["name"]
@@ -43,11 +42,22 @@ class EpsilonGreedyRecommender:
         :param sneaker_id: ID patike koja je ažurirana
         """
         data = {"count": self.counts[sneaker_id], "reward": self.rewards[sneaker_id]}
-        response = (
-            self.supabase.table("Product").update(data).eq("id", sneaker_id).execute()
-        )
-        if response.get("status_code") != 200:
-            raise Exception(f"Greška prilikom čuvanja podataka: {response}")
+        print(
+            f"Saving data for sneaker_id {sneaker_id}: {data}, Type of sneaker_id: {type(sneaker_id)}"
+        )  # Debug statement
+
+        try:
+            response = (
+                self.supabase.table("Product")
+                .update(data)
+                .eq("id", sneaker_id)
+                .execute()
+            )
+
+            print("Update successful:", response.data)
+
+        except Exception as e:
+            print(f"Error updating product: {str(e)}")
 
     def select_item(self):
         """
@@ -60,10 +70,14 @@ class EpsilonGreedyRecommender:
             return chosen_id, self.items[chosen_id]
 
         # Slučaj kada biramo najbolju patiku do sada (exploitation)
-        best_item_id = None
+        best_item_ids = []
         best_avg_reward = -float("inf")
 
-        for sneaker_id in self.items:
+        # Shuffle the items to ensure random selection among equals
+        items_shuffled = list(self.items.keys())
+        random.shuffle(items_shuffled)
+
+        for sneaker_id in items_shuffled:
             if self.counts[sneaker_id] == 0:
                 avg_reward = (
                     0  # Ako nikad nismo prikazali taj item, postavimo avg_reward na 0
@@ -73,9 +87,18 @@ class EpsilonGreedyRecommender:
 
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
-                best_item_id = sneaker_id
+                best_item_ids = [sneaker_id]
+            elif avg_reward == best_avg_reward:
+                best_item_ids.append(sneaker_id)
 
-        return best_item_id, self.items[best_item_id]
+        # Ako postoji više proizvoda sa istim najboljim avg_reward, nasumično odaberi jedan
+        if best_item_ids:
+            chosen_id = random.choice(best_item_ids)
+            return chosen_id, self.items[chosen_id]
+        else:
+            # Fallback na nasumičan izbor ako nema najboljih proizvoda
+            chosen_id = random.choice(list(self.items.keys()))
+            return chosen_id, self.items[chosen_id]
 
     def select_items(self, num_items=1):
         """
@@ -109,15 +132,14 @@ class EpsilonGreedyRecommender:
         if chosen_id not in self.items:
             raise ValueError(f"Odabrana patika sa ID '{chosen_id}' nije poznata.")
 
-        # Definiši nagrade za različite tipove interakcija
         reward_mapping = {
-            "click": 1,  # Mala nagrada za klik
-            "purchase": 5,  # Veća nagrada za kupovinu
-            "no_click": -1,  # Mala kazna za neklik
+            "click": 1,
+            "purchase": 5,
+            "no_click": -1,
         }
 
-        reward = reward_mapping.get(interaction_type, 0)  # Default reward je 0
-
+        reward = reward_mapping.get(interaction_type, 0)
+        print(reward)
         self.counts[chosen_id] += 1
         self.rewards[chosen_id] += reward
         self.save_data(chosen_id)

@@ -72,21 +72,25 @@ def recommend():
         return jsonify({"error": "Nema dostupnih patika za preporuku."}), 404
 
     # Povuci dodatne podatke o preporučenim patikama iz Supabase
-    sneaker_ids = [item[0] for item in chosen_items]
-    response = (
-        recommender.supabase.table("sneakers")
-        .select("*")
-        .in_("id", sneaker_ids)
-        .execute()
-    )
-    if response.status_code != 200:
-        return (
-            jsonify({"error": "Greška prilikom povlačenja podataka o patikama."}),
-            500,
+    try:
+        sneaker_ids = [str(item[0]) for item in chosen_items]  # Convert IDs to strings
+        response = (
+            recommender.supabase.table("Product")
+            .select("*")
+            .in_("id", sneaker_ids)
+            .execute()
         )
 
-    detailed_sneakers = response.data
-    return jsonify({"recommendations": detailed_sneakers})
+        # Access data directly from response
+        sneakers_data = response.data
+
+        if not sneakers_data:
+            return jsonify({"error": "Nije moguće dobiti podatke o patikama."}), 404
+
+        return jsonify({"recommendations": sneakers_data}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Greška prilikom dobijanja podataka: {str(e)}"}), 500
 
 
 @app.route("/interact", methods=["POST"])
