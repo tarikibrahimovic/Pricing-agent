@@ -65,13 +65,11 @@ def recommend():
     except ValueError:
         return jsonify({"error": "Parametar 'num' mora biti pozitivan ceo broj."}), 400
 
-    # Odaberi patike za preporuku
     chosen_items = recommender.select_items(num_items=num)
 
     if not chosen_items:
         return jsonify({"error": "Nema dostupnih patika za preporuku."}), 404
 
-    # Povuci dodatne podatke o preporučenim patikama iz Supabase
     try:
         sneaker_ids = [str(item[0]) for item in chosen_items]  # Convert IDs to strings
         response = (
@@ -101,9 +99,7 @@ def interact():
     """
     data = request.json
     chosen_id = data.get("id")
-    interaction_type = data.get(
-        "interaction_type", "no_click"
-    )  # 'click', 'purchase', 'no_click'
+    interaction_type = data.get("interaction_type", "no_click")
 
     if not chosen_id:
         return jsonify({"error": "Parametar 'id' je obavezan."}), 400

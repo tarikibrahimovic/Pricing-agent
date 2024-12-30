@@ -1,8 +1,8 @@
 import random
 from supabase import create_client, Client
-import os
 from dotenv import load_dotenv
 
+# Učitaj environment varijable iz .env fajla
 load_dotenv()
 
 
@@ -11,40 +11,48 @@ class EpsilonGreedyRecommender:
         """
         :param supabase_url: URL Supabase projekta
         :param supabase_key: API ključ Supabase projekta (Service Role Key)
-        :param epsilon: Verovatnoća za nasumično biranje kraka (exploration)
+        :param epsilon: Verovatnoća za nasumično biranje patika (exploration)
         """
         self.epsilon = epsilon
         self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.items = {}
-        self.counts = {}
-        self.rewards = {}
+        self.items = {}  # Ključ je id, vrednost je name
+        self.counts = {}  # Ključ je id, vrednost je count
+        self.rewards = {}  # Ključ je id, vrednost je reward
         self.load_data()
 
     def load_data(self):
-        """
-        Učitaj podatke o patikama iz Supabase baze.
-        """
-        response = self.supabase.table("Product").select("*").execute()
+        """Load products and rewards data from Supabase"""
+        try:
+            # Fetch products from Supabase
+            response = self.supabase.table("Product").select("*").execute()
+            products_data = response.data
 
-        # Access data directly from response.data
-        data = response.data
+            if not products_data:
+                raise Exception("No products found in database")
 
-        for entry in data:
-            sneaker_id = entry["id"]
-            name = entry["name"]
-            self.items[sneaker_id] = name
-            self.counts[sneaker_id] = entry.get("count", 0)
-            self.rewards[sneaker_id] = entry.get("reward", 0)
+            # Initialize items, rewards and counts
+            self.items = {str(item["id"]): item["name"] for item in products_data}
 
-    def save_data(self, sneaker_id):
+            # Initialize rewards and counts if not already present
+            for product_id in self.items.keys():
+                if product_id not in self.rewards:
+                    self.rewards[product_id] = 1.0  # Initial reward value
+                if product_id not in self.counts:
+                    self.counts[product_id] = 0  # Initial count
+
+        except Exception as e:
+            print(f"Error loading data: {str(e)}")
+            raise
+
+    def save_data(self, sneaker_id, penalty=0.0):
         """
         Sačuvaj trenutne podatke o patikama u Supabase bazu.
         :param sneaker_id: ID patike koja je ažurirana
         """
-        data = {"count": self.counts[sneaker_id], "reward": self.rewards[sneaker_id]}
-        print(
-            f"Saving data for sneaker_id {sneaker_id}: {data}, Type of sneaker_id: {type(sneaker_id)}"
-        )  # Debug statement
+        data = {
+            "count": self.counts[sneaker_id],
+            "reward": self.rewards[sneaker_id] - penalty,
+        }
 
         try:
             response = (
@@ -53,8 +61,6 @@ class EpsilonGreedyRecommender:
                 .eq("id", sneaker_id)
                 .execute()
             )
-
-            print("Update successful:", response.data)
 
         except Exception as e:
             print(f"Error updating product: {str(e)}")
@@ -73,14 +79,14 @@ class EpsilonGreedyRecommender:
         best_item_ids = []
         best_avg_reward = -float("inf")
 
-        # Shuffle the items to ensure random selection among equals
+        # Shuffle the items da osiguraš nasumičan izbor među jednakima
         items_shuffled = list(self.items.keys())
         random.shuffle(items_shuffled)
 
         for sneaker_id in items_shuffled:
             if self.counts[sneaker_id] == 0:
                 avg_reward = (
-                    0  # Ako nikad nismo prikazali taj item, postavimo avg_reward na 0
+                    0.0  # Ako nikad nismo prikazali taj item, postavimo avg_reward na 0
                 )
             else:
                 avg_reward = self.rewards[sneaker_id] / float(self.counts[sneaker_id])
@@ -118,6 +124,9 @@ class EpsilonGreedyRecommender:
             if chosen_id not in selected_ids:
                 recommendations.append((chosen_id, chosen_name))
                 selected_ids.add(chosen_id)
+                # Primeni kaznu odmah nakon odabira
+                self.rewards[chosen_id] -= 0.1  # Mali penalizator
+                self.save_data(chosen_id, penalty=0.1)
             else:
                 break  # Nema više jedinstvenih patika za preporuku
 
@@ -125,21 +134,29 @@ class EpsilonGreedyRecommender:
 
     def update(self, chosen_id, interaction_type):
         """
-        Ažuriraj broj pokušaja i ostvarenih reward-a za dati item, i sačuvaj podatke u Supabase bazi.
-        :param chosen_id: ID patike koja je bila preporučena
-        :param interaction_type: Tip interakcije ('click', 'purchase', 'no_click')
+        Ažuriraj broj pokušaja i ostvarene reward-e za dati item.
         """
-        if chosen_id not in self.items:
-            raise ValueError(f"Odabrana patika sa ID '{chosen_id}' nije poznata.")
+        chosen_id_str = str(chosen_id)
 
+        # Initialize count if not exists
+        if chosen_id_str not in self.counts:
+            self.counts[chosen_id_str] = 0
+
+        # Update count
+        self.counts[chosen_id_str] += 1
+
+        # Update rewards
         reward_mapping = {
             "click": 1,
             "purchase": 5,
             "no_click": -1,
         }
-
         reward = reward_mapping.get(interaction_type, 0)
-        print(reward)
-        self.counts[chosen_id] += 1
-        self.rewards[chosen_id] += reward
-        self.save_data(chosen_id)
+
+        if chosen_id_str not in self.rewards:
+            self.rewards[chosen_id_str] = 0
+
+        self.rewards[chosen_id_str] += reward
+
+        # Save to database
+        self.save_data(chosen_id_str)
