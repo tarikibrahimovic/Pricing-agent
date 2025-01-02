@@ -9,6 +9,8 @@ from recommendation_engine import EpsilonGreedyRecommender
 app = Flask(__name__)
 CORS(app)
 
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
