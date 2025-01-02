@@ -1,11 +1,14 @@
 import os
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from stable_baselines3 import DQN
 import numpy as np
 from dotenv import load_dotenv
 from recommendation_engine import EpsilonGreedyRecommender
 
 app = Flask(__name__)
+
+CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
 load_dotenv()
 
