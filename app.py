@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from recommendation_engine import EpsilonGreedyRecommender
 
 app = Flask(__name__)
-CORS(app)
 
 CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
 
