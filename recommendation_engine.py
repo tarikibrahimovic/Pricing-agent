@@ -1,162 +1,113 @@
 import random
-from supabase import create_client, Client
-from dotenv import load_dotenv
+from typing import List, Tuple, Optional
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from database import Product
+import logging
 
-# Učitaj environment varijable iz .env fajla
-load_dotenv()
-
+logger = logging.getLogger(__name__)
 
 class EpsilonGreedyRecommender:
-    def __init__(self, supabase_url, supabase_key, epsilon=0.1):
-        """
-        :param supabase_url: URL Supabase projekta
-        :param supabase_key: API ključ Supabase projekta (Service Role Key)
-        :param epsilon: Verovatnoća za nasumično biranje patika (exploration)
-        """
+    def __init__(self, db_session: Session, epsilon: float = 0.1):
+        self.db_session = db_session
         self.epsilon = epsilon
-        self.supabase: Client = create_client(supabase_url, supabase_key)
-        self.items = {}  # Ključ je id, vrednost je name
-        self.counts = {}  # Ključ je id, vrednost je count
-        self.rewards = {}  # Ključ je id, vrednost je reward
+        self.items = {}
+        self.counts = {}
+        self.rewards = {}
         self.load_data()
 
-    def load_data(self):
-        """Load products and rewards data from Supabase"""
+    def load_data(self) -> None:
+        """Učitaj proizvode iz baze i inicijalizuj lokalne mape"""
         try:
-            # Fetch products from Supabase
-            response = self.supabase.table("Product").select("*").execute()
-            products_data = response.data
-
-            if not products_data:
-                raise Exception("No products found in database")
-
-            # Initialize items, rewards and counts
-            self.items = {str(item["id"]): item["name"] for item in products_data}
-
-            # Initialize rewards and counts if not already present
-            for product_id in self.items.keys():
-                if product_id not in self.rewards:
-                    self.rewards[product_id] = 1.0  # Initial reward value
-                if product_id not in self.counts:
-                    self.counts[product_id] = 0  # Initial count
-
-        except Exception as e:
-            print(f"Error loading data: {str(e)}")
+            products = self.db_session.query(Product).all()
+            
+            if not products:
+                logger.warning("No products found in database")
+                return
+                
+            for p in products:
+                pid_str = str(p.id)
+                self.items[pid_str] = p.name
+                self.counts[pid_str] = p.count or 0
+                self.rewards[pid_str] = p.reward or 1.0
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Error loading data: {e}")
             raise
 
-    def save_data(self, sneaker_id, penalty=0.0):
-        """
-        Sačuvaj trenutne podatke o patikama u Supabase bazu.
-        :param sneaker_id: ID patike koja je ažurirana
-        """
-        data = {
-            "count": self.counts[sneaker_id],
-            "reward": self.rewards[sneaker_id] - penalty,
-        }
-
+    def save_data(self, sneaker_id: str, penalty: float = 0.0) -> None:
+        """Sačuvaj promene u bazi"""
         try:
-            response = (
-                self.supabase.table("Product")
-                .update(data)
-                .eq("id", sneaker_id)
-                .execute()
-            )
+            product = self.db_session.query(Product).filter(
+                Product.id == int(sneaker_id)
+            ).one_or_none()
+            
+            if product:
+                product.count = self.counts[sneaker_id]
+                product.reward = self.rewards[sneaker_id] - penalty
+                self.db_session.commit()
+            else:
+                logger.warning(f"Product with id={sneaker_id} not found")
+                
+        except SQLAlchemyError as e:
+            logger.error(f"Error saving data: {e}")
+            self.db_session.rollback()
+            raise
 
-        except Exception as e:
-            print(f"Error updating product: {str(e)}")
-
-    def select_item(self):
-        """
-        Vrati jedan item (patiku) koji treba da preporučiš korisniku.
-        Radi se epsilon-greedy selekcija.
-        """
-        # Slučaj kada biramo nasumično (exploration)
+    def select_item(self) -> Tuple[str, str]:
+        """Izaberi jednu patiku epsilon-greedy metodom"""
         if random.random() < self.epsilon:
             chosen_id = random.choice(list(self.items.keys()))
             return chosen_id, self.items[chosen_id]
 
-        # Slučaj kada biramo najbolju patiku do sada (exploitation)
-        best_item_ids = []
-        best_avg_reward = -float("inf")
+        best_items = []
+        best_reward = float('-inf')
+        
+        shuffled_items = list(self.items.keys())
+        random.shuffle(shuffled_items)
+        
+        for item_id in shuffled_items:
+            count = self.counts[item_id]
+            reward = self.rewards[item_id]
+            avg_reward = reward / count if count > 0 else 0.0
+            
+            if avg_reward > best_reward:
+                best_reward = avg_reward
+                best_items = [item_id]
+            elif avg_reward == best_reward:
+                best_items.append(item_id)
+                
+        chosen_id = random.choice(best_items) if best_items else random.choice(shuffled_items)
+        return chosen_id, self.items[chosen_id]
 
-        # Shuffle the items da osiguraš nasumičan izbor među jednakima
-        items_shuffled = list(self.items.keys())
-        random.shuffle(items_shuffled)
-
-        for sneaker_id in items_shuffled:
-            if self.counts[sneaker_id] == 0:
-                avg_reward = (
-                    0.0  # Ako nikad nismo prikazali taj item, postavimo avg_reward na 0
-                )
-            else:
-                avg_reward = self.rewards[sneaker_id] / float(self.counts[sneaker_id])
-
-            if avg_reward > best_avg_reward:
-                best_avg_reward = avg_reward
-                best_item_ids = [sneaker_id]
-            elif avg_reward == best_avg_reward:
-                best_item_ids.append(sneaker_id)
-
-        # Ako postoji više proizvoda sa istim najboljim avg_reward, nasumično odaberi jedan
-        if best_item_ids:
-            chosen_id = random.choice(best_item_ids)
-            return chosen_id, self.items[chosen_id]
-        else:
-            # Fallback na nasumičan izbor ako nema najboljih proizvoda
-            chosen_id = random.choice(list(self.items.keys()))
-            return chosen_id, self.items[chosen_id]
-
-    def select_items(self, num_items=1):
-        """
-        Vrati listu preporučenih patika.
-        :param num_items: Broj patika za preporuku
-        :return: Lista tuple-ova (id, name)
-        """
+    def select_items(self, num_items: int = 1) -> List[Tuple[str, str]]:
+        """Vrati listu preporučenih proizvoda"""
         recommendations = []
-        selected_ids = set()
-
-        for _ in range(num_items):
-            chosen_id, chosen_name = self.select_item()
-            # Ako je već odabrana u ovoj grupi, ponovi izbor
-            while chosen_id in selected_ids and len(selected_ids) < len(self.items):
-                chosen_id, chosen_name = self.select_item()
-
-            if chosen_id not in selected_ids:
-                recommendations.append((chosen_id, chosen_name))
-                selected_ids.add(chosen_id)
-                # Primeni kaznu odmah nakon odabira
-                self.rewards[chosen_id] -= 0.1  # Mali penalizator
-                self.save_data(chosen_id, penalty=0.1)
-            else:
-                break  # Nema više jedinstvenih patika za preporuku
-
+        selected = set()
+        
+        while len(recommendations) < num_items and len(selected) < len(self.items):
+            item_id, item_name = self.select_item()
+            if item_id not in selected:
+                recommendations.append((item_id, item_name))
+                selected.add(item_id)
+                self.rewards[item_id] -= 0.1
+                self.save_data(item_id, penalty=0.1)
+                
         return recommendations
 
-    def update(self, chosen_id, interaction_type):
-        """
-        Ažuriraj broj pokušaja i ostvarene reward-e za dati item.
-        """
-        chosen_id_str = str(chosen_id)
-
-        # Initialize count if not exists
-        if chosen_id_str not in self.counts:
-            self.counts[chosen_id_str] = 0
-
-        # Update count
-        self.counts[chosen_id_str] += 1
-
-        # Update rewards
-        reward_mapping = {
-            "click": 1,
-            "purchase": 5,
-            "no_click": -1,
-        }
-        reward = reward_mapping.get(interaction_type, 0)
-
-        if chosen_id_str not in self.rewards:
-            self.rewards[chosen_id_str] = 0
-
-        self.rewards[chosen_id_str] += reward
-
-        # Save to database
-        self.save_data(chosen_id_str)
+    def update(self, chosen_id: str, interaction_type: str) -> None:
+        """Ažuriraj statistike za izabrani proizvod"""
+        chosen_id = str(chosen_id)
+        
+        if chosen_id not in self.counts:
+            self.counts[chosen_id] = 0
+        if chosen_id not in self.rewards:
+            self.rewards[chosen_id] = 0
+            
+        self.counts[chosen_id] += 1
+        
+        rewards = {"click": 1, "purchase": 5, "no_click": -1}
+        reward = rewards.get(interaction_type, 0)
+        self.rewards[chosen_id] += reward
+        
+        self.save_data(chosen_id)
