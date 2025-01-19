@@ -125,8 +125,6 @@ class EpsilonGreedyRecommender:
                 .filter(Product.id.in_(str_product_ids))
                 .all()
             )
-            # print(products)
-            print("AAAAAAAAAAAAAAAAAAAAAAAAAAA")
             return products
         except SQLAlchemyError as e:
             print(f"Error fetching products: {str(e)}")
