@@ -1,5 +1,5 @@
 __pycache__
 *.pyc
 *.pyo
-venv
+venv_test
 .env
