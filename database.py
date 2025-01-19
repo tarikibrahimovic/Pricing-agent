@@ -18,25 +18,31 @@ if not DATABASE_URL:
 
 Base = declarative_base()
 
+
 class Product(Base):
     __tablename__ = "Product"
-    
+
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
+    basePrice = Column(Float, nullable=False)
+    imageUrl = Column(String, nullable=False)
     count = Column(Integer, default=0)
     reward = Column(Float, default=1.0)
-    
+
     def to_dict(self) -> dict:
         """Konvertuj model u dictionary za JSON serijalizaciju"""
         return {
             "id": self.id,
             "name": self.name,
+            "basePrice": self.basePrice,
+            "imageUrl": self.imageUrl,
             "count": self.count,
-            "reward": self.reward
+            "reward": self.reward,
         }
-    
+
     def __repr__(self) -> str:
-        return f"<Product(id={self.id}, name={self.name})>"
+        return f"<Product(id={self.id}, name={self.name}, basePrice={self.basePrice}, count={self.count}, reward={self.reward}, imageUrl={self.imageUrl})>"
+
 
 # Konfiguracija enginea sa connection poolingom
 engine = create_engine(
@@ -45,11 +51,12 @@ engine = create_engine(
     max_overflow=10,  # Maksimalan broj dodatnih konekcija
     pool_timeout=30,  # Timeout za dobijanje konekcije
     pool_recycle=1800,  # Recikliraj konekcije nakon 30 minuta
-    echo=False  # Postavi na True za SQL debugging
+    echo=False,  # Postavi na True za SQL debugging
 )
 
 # Session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 
 def init_db() -> None:
     """Inicijalizuj bazu i kreiraj tabele"""
@@ -59,6 +66,7 @@ def init_db() -> None:
     except SQLAlchemyError as e:
         logger.error(f"Error creating database tables: {e}")
         raise
+
 
 def get_db() -> Generator:
     """Dependency za dobijanje DB sesije"""
