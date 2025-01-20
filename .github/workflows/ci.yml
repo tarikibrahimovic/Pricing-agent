@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      SUPABASE_DATABASE_URL: ${{ secrets.subabaseUrl }}
+      SUPABASE_DATABASE_URL: ${{ secrets.SUPABASEURL }}
 
     steps:
       - name: Checkout repo
