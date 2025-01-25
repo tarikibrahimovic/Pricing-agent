@@ -13,7 +13,7 @@ from decimal import Decimal
 import traceback
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}})
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Učitaj DQN model
 model = DQN.load("pricing_agent")
