@@ -6,3 +6,4 @@ python-dotenv==1.0.1
 SQLAlchemy==2.0.37
 stable_baselines3==2.4.1
 psycopg2-binary==2.9.9
+gym==0.26.2
