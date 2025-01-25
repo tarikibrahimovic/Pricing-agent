@@ -11,12 +11,28 @@ from recommendation_engine import EpsilonGreedyRecommender
 import logging
 from decimal import Decimal
 import traceback
+from gym import spaces
+import numpy as np
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Učitaj DQN model
-model = DQN.load("pricing_agent")
+
+observation_space = spaces.Box(
+    low=np.array([0, 0, 0, 0, 0], dtype=np.float32),
+    high=np.array([1, 1, 1, 1, 1], dtype=np.float32),
+    dtype=np.float32,
+)
+
+action_space = spaces.Discrete(5)  # 5 akcija (0-4) za promjenu cijene
+
+model = DQN.load(
+    "pricing_agent",
+    custom_objects={
+        "observation_space": observation_space,
+        "action_space": action_space,
+    },
+)
 
 
 @contextmanager
@@ -63,10 +79,8 @@ def recommend():
 
             products = recommender.get_products_by_ids([int(id) for id, _ in items])
 
-            # Koristimo to_dict() metodu za serijalizaciju
             recommendations = [p.to_dict() for p in products]
 
-            print(recommendations)
             return jsonify({"recommendations": recommendations}), 200
 
     except Exception as e:
