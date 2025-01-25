@@ -185,4 +185,4 @@ def predict_prices_bulk():
 
 if __name__ == "__main__":
     init_db()  # Inicijalizuj bazu pri pokretanju
-    app.run(port=5000, debug=True)
+    app.run(port=int(os.environ.get("PORT", 5000)), host="0.0.0.0")
