@@ -11,7 +11,7 @@ from recommendation_engine import EpsilonGreedyRecommender
 import logging
 from decimal import Decimal
 import traceback
-from gym import spaces
+from gymnasium import spaces  # Koristi Gymnasium umjesto starog gym
 import numpy as np
 
 app = Flask(__name__)
@@ -24,7 +24,7 @@ observation_space = spaces.Box(
     dtype=np.float32,
 )
 
-action_space = spaces.Discrete(5)  # 5 akcija (0-4) za promjenu cijene
+action_space = spaces.Discrete(5)
 
 model = DQN.load(
     "pricing_agent",

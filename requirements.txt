@@ -1,9 +1,22 @@
+# Core
 Flask==3.1.0
 flask_cors==5.0.0
-numpy==1.26.0
-pytest==8.3.4
 python-dotenv==1.0.1
+
+# Database
 SQLAlchemy==2.0.37
-stable_baselines3==2.4.1
 psycopg2-binary==2.9.9
-gym==0.26.2
+
+# RL & ML
+stable_baselines3==2.4.1
+torch==2.2.1
+gymnasium==0.29.1  # Zamjena za stari gym
+shimmy==1.3.0      # Most između gym i gymnasium
+numpy==1.26.0
+
+# Testing
+pytest==8.3.4
+
+# Dodatni paketi za kompatibilnost
+cloudpickle==3.0.0
+typing_extensions==4.11.0
